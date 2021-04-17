@@ -1,7 +1,6 @@
 import React from "react";
 import { Characters } from '../constants';
 import { RosterItem } from './RosterItem';
-import { CharacterPortrait } from './CharacterPortrait';
 
 const RosterOrder = [
     Characters.Albedo,
@@ -39,10 +38,6 @@ const RosterOrder = [
 ];
 
 export class Roster extends React.Component {
-    constructor(props) {
-        super(props);
-    }
-
     render() {
         return (RosterOrder.map(c => <RosterItem char={c}/>));
     }

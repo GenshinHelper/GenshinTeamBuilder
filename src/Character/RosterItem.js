@@ -1,5 +1,4 @@
 import React from "react";
-import { Characters } from '../constants';
 import { CharacterPortrait} from './CharacterPortrait';
 import './RosterItem.css';
 
