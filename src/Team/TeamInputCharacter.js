@@ -17,6 +17,7 @@ export class TeamInputCharacter extends React.Component {
     return (
       <div
         className="team-input-character"
+        onDragStart={this.handleDrag}
         onDragOver={this.handleDragOver}
         onDrop={this.handleDrop}
         onClick={this.handleClick}
@@ -45,5 +46,9 @@ export class TeamInputCharacter extends React.Component {
     ev.preventDefault();
     this.props.onClear(this.props.id);
     this.setState({ selected: undefined });
+  };
+
+  handleDrag = (ev) => {
+    ev.preventDefault();
   };
 }

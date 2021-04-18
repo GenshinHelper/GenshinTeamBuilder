@@ -6,7 +6,7 @@ function App() {
   return (
     <div className="App">
       <header className="App-header">
-        <h1>Genshin Impact Team Builder</h1>
+        <h1>Genshin Impact Team Builder (Beta)</h1>
         <TutorialBanner />
         <TeamGenerator />
       </header>
