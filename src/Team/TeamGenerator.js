@@ -132,7 +132,7 @@ export class TeamGenerator extends React.Component {
     }
 
     Promise.all([fetchRatings, fetchSynergy]).then(() => {
-      this.setState({ recommendedTeams: this.getSuggestions(1) });
+      this.setState({ recommendedTeams: this.getSuggestions(3) });
     });
   };
 
