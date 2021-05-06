@@ -41,6 +41,7 @@ export class Roster extends React.Component {
   render() {
     return RosterOrder.map((c) => (
       <RosterItem
+        key={c.name}
         char={c}
         onCharEnabledCallback={this.props.onCharEnabledCallback}
         isCharSelected={this.props.isCharSelected}

@@ -1,37 +1,49 @@
 import React from "react";
-import { db } from "../firebase";
-import { Characters, CharArray } from "../constants";
+import * as Constants from "../constants";
 import { CharacterPortrait } from "../Character/CharacterPortrait";
 import { Roster } from "../Character/RosterRenderer";
 import { TeamInputCharacter } from "./TeamInputCharacter";
 import { GenerateAllPermutations } from "../utility";
+import { Database } from "../Rating/Database";
+import { Composition } from "./Composition";
 
 const collectionName = "normalized-ratings";
-const rankDocName = "char-ranking";
-const synergyDocName = "synergy-rating";
+const tagDocName = "tags";
 
-const RATING_WEIGHT = 1;
-const SYNERGY_WEIGHT = 1.5;
+// Rating Weights
+
+// Weight for individual character ratings
+const TAG_RATING_WEIGHT = 1;
+
+// Weight for character synergy ratings
+const SYNERGY_WEIGHT = 1;
+
+// Weight for penalty for overlapping roles
+const ROLE_OVERLAP_WEIGHT = -2;
+
+// Weight for selected character ratings
+const SELECTED_CHAR_WEIGHT = 4;
+
+// Constant value for required elements
+const REQUIRED_WEIGHT = 50;
 
 export class TeamGenerator extends React.Component {
-  rosterState;
-  selectedTeam = [undefined, undefined, undefined, undefined];
-
-  characterRatings;
-  synergyRatings;
-
   constructor(props) {
     super(props);
 
-    this.rosterState = CharArray.map((c) => ({
+    this.rosterState = Constants.AllCharacters.map((c) => ({
       char: c,
       enabled: true,
       selected: false,
     }));
 
+    this.selectedTeam = [undefined, undefined, undefined, undefined];
     this.state = {
       recommendedTeams: [],
+      requireHealer: true,
     };
+    this.database = new Database(collectionName, tagDocName);
+    this.checkboxRef = React.createRef();
   }
 
   render() {
@@ -42,8 +54,12 @@ export class TeamGenerator extends React.Component {
         </div>
         <div className="team-input-box">
           {[0, 1, 2, 3].map((id) => (
-            <TeamInputCharacter id={id} tryAddToTeam={this.tryAddToTeam} onClear={this.clearSelectedTeam} />
+            <TeamInputCharacter key={id} id={id} tryAddToTeam={this.tryAddToTeam} onClear={this.clearSelectedTeam} />
           ))}
+        </div>
+        <div>
+          <input type="checkbox" defaultChecked={true} onChange={this.onRequireHealerChanged} />
+          <label>Require Healer</label>
         </div>
         <button className="recommend-button" onClick={this.onSuggestHandler}>
           Suggest!
@@ -69,6 +85,12 @@ export class TeamGenerator extends React.Component {
     this.rosterState[char.id].enabled = enabled;
   };
 
+  onRequireHealerChanged = (event) => {
+    this.setState({
+      requireHealer: event.target.checked,
+    });
+  };
+
   isCharSelected = (char) => {
     return this.selectedTeam.findIndex((c) => char.id === c?.id) > -1;
   };
@@ -78,8 +100,8 @@ export class TeamGenerator extends React.Component {
     // Allow if the spot being overridden contains traveler
     if (!!char.isTraveler && !this.selectedTeam[index]?.isTraveler) {
       if (
-        this.selectedTeam.findIndex((c) => c?.id === Characters.Traveler_Anemo.id) > -1 ||
-        this.selectedTeam.findIndex((c) => c?.id === Characters.Traveler_Geo.id) > -1
+        this.selectedTeam.findIndex((c) => c?.id === Constants.Characters.Traveler_Anemo.id) > -1 ||
+        this.selectedTeam.findIndex((c) => c?.id === Constants.Characters.Traveler_Geo.id) > -1
       ) {
         return false;
       }
@@ -102,36 +124,7 @@ export class TeamGenerator extends React.Component {
   };
 
   onSuggestHandler = () => {
-    let fetchRatings = Promise.resolve();
-    let fetchSynergy = Promise.resolve();
-
-    if (!this.characterRatings) {
-      fetchRatings = db
-        .collection(collectionName)
-        .doc(rankDocName)
-        .get()
-        .then((doc) => {
-          this.characterRatings = doc.data().rank;
-        })
-        .catch((error) => {
-          console.error(`Error fetching char ratings - ${error}`);
-        });
-    }
-
-    if (!this.synergyRatings) {
-      fetchSynergy = db
-        .collection(collectionName)
-        .doc(synergyDocName)
-        .get()
-        .then((doc) => {
-          this.synergyRatings = doc.data();
-        })
-        .catch((error) => {
-          console.error(`Error fetching synergy ratings - ${error}`);
-        });
-    }
-
-    Promise.all([fetchRatings, fetchSynergy]).then(() => {
+    this.database.readPromise.then(() => {
       this.setState({ recommendedTeams: this.getSuggestions(3) });
     });
   };
@@ -139,8 +132,16 @@ export class TeamGenerator extends React.Component {
   getSuggestions(count) {
     var results = [];
 
+    // Store selected chars
+    this.selectedChars = {};
+    this.rosterState
+      .filter((r) => r.selected)
+      .forEach((r) => {
+        this.selectedChars[r.char.name] = true;
+      });
+
     // Get list of available chars
-    var characterList = this.rosterState.filter((s) => s.enabled && !s.selected).map((s) => s.char);
+    var characterList = this.rosterState.filter((r) => r.enabled && !r.selected).map((r) => r.char);
     var groupSize = 0;
     this.selectedTeam.forEach((c) => {
       if (!c) {
@@ -150,67 +151,133 @@ export class TeamGenerator extends React.Component {
     var perms = GenerateAllPermutations(characterList, groupSize);
 
     perms.forEach((p) => {
-      var comp = [...this.selectedTeam];
+      var chars = [...this.selectedTeam];
 
       for (var i = 0, j = 0; i < 4; ++i) {
-        if (!comp[i]) {
-          comp[i] = p[j++];
+        if (!chars[i]) {
+          chars[i] = p[j++];
         }
       }
 
-      results.push({
-        comp,
-        rating: this.rateComp(comp),
-      });
+      results.push(this.rateComp(chars));
     });
 
     results.sort((a, b) => b.rating - a.rating);
-    return results.slice(0, count).map((r) => r.comp);
+
+    const debug = results.slice(0, 50);
+    for (const result of debug) {
+      console.log(result.logString);
+    }
+
+    return results.slice(0, count).map((r) => r.chars);
   }
 
-  rateComp(comp) {
-    if (comp.length !== 4) {
-      console.error(`Invalid comp size ${comp.length}`);
+  rateComp(chars) {
+    if (chars.length !== 4) {
+      console.error(`Invalid number of chars ${chars.length}`);
       return -1;
     }
 
-    if (!this.characterRatings || !this.synergyRatings) {
-      console.error(`Ratings not fetched. Ratings: ${this.characterRatings} Synergy: ${this.synergyRatings}`);
-      return -1;
+    let logString = `[${chars[0].name},${chars[1].name},${chars[2].name},${chars[3].name}]`;
+
+    const comp = new Composition(chars);
+
+    // Calculate individual char ratings
+    const tagRating = this.sumRatings(comp.tags);
+    logString += `[Ratings: ${tagRating}] `;
+
+    // Calculate synergy ratings
+    const synergyRating = this.sumSynergy(comp.tags);
+    logString += `[Synergy: ${synergyRating}] `;
+
+    // Check overlaps
+    const overlapRating = this.sumOverlap(comp.characters);
+    logString += `[Overlap: ${overlapRating}] `;
+
+    // Check if a healer is requested
+    let healer = 0;
+    if (
+      this.state.requireHealer &&
+      comp.characters.filter((c) => (c.roles & Constants.RoleMask.Healer) === Constants.RoleMask.Healer).length > 0
+    ) {
+      logString += `[Healer] `;
+      healer += REQUIRED_WEIGHT;
     }
 
-    // Add individual chars
-    var rating = 0;
-    for (var i = 0; i < 4; ++i) {
-      rating += this.characterRatings[comp[i].id];
+    const rating = tagRating + synergyRating + overlapRating + healer;
+    logString += `[Total: ${rating}]`;
+
+    return {
+      chars,
+      rating,
+      logString: logString,
+    };
+  }
+
+  sumRatings(tags) {
+    let tagRatings = 0;
+
+    for (const tag of tags) {
+      tagRatings += this.database.data[tag].Rating;
     }
 
-    rating *= RATING_WEIGHT;
+    tagRatings *= TAG_RATING_WEIGHT;
+    return tagRatings;
+  }
 
-    var synergy = 0;
-    var pairs = GenerateAllPermutations(comp, 2);
+  sumSynergy(tags) {
+    let synergyRating = 0;
 
-    pairs.forEach((pair) => {
-      var val = this.getSynergy(pair[0], pair[1]);
-      if (val > 0) {
-        synergy += val;
+    for (let i = 0; i < tags.length; ++i) {
+      const tagA = tags[i];
+      if (!this.isSelected(tagA)) {
+        continue;
       }
-    });
 
-    synergy *= SYNERGY_WEIGHT;
+      for (let j = i + 1; j < tags.length; ++j) {
+        const tagB = tags[j];
+        const rating = this.database.data[tagA][tagB];
+        if (!!rating) {
+          let multiplier = 1;
 
-    // console.info(`${comp.map((c) => c.displayName)} Rating: ${rating} Synergy: ${synergy} Total: ${rating + synergy}`);
+          if (this.isSelected(tagA) || this.isSelected(tagB)) {
+            multiplier = SELECTED_CHAR_WEIGHT;
+          }
 
-    return rating + synergy;
-  }
-
-  getSynergy(char_a, char_b) {
-    let val = this.synergyRatings[char_a.name][char_b.id];
-    if (val < 0) {
-      console.error(`Invalid synergy value ${val} found between ${char_a.displayName} and ${char_b.displayName}.`);
-      return -1;
+          synergyRating += rating * multiplier;
+        }
+      }
     }
 
-    return val;
+    synergyRating *= SYNERGY_WEIGHT;
+    return synergyRating;
+  }
+
+  sumOverlap(chars) {
+    let overlapRating = 0;
+    for (let i = 0; i < 4; ++i) {
+      const role1 = chars[i].roles;
+      const nameA = chars[i].name;
+
+      for (let j = i + 1; j < 4; ++j) {
+        const role2 = chars[j].roles;
+        const nameB = chars[j].name;
+
+        if ((role1 & role2) !== Constants.RoleMask.None) {
+          let multiplier = 1;
+
+          if (this.isSelected(nameA) || this.isSelected(nameB)) {
+            multiplier = SELECTED_CHAR_WEIGHT;
+          }
+          overlapRating += ROLE_OVERLAP_WEIGHT * multiplier;
+        }
+      }
+    }
+
+    return overlapRating;
+  }
+
+  isSelected(charName) {
+    return !!this.selectedChars[charName];
   }
 }
