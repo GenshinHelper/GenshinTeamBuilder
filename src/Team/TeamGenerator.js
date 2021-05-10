@@ -164,10 +164,10 @@ export class TeamGenerator extends React.Component {
 
     results.sort((a, b) => b.rating - a.rating);
 
-    const debug = results.slice(0, 50);
-    for (const result of debug) {
-      console.log(result.logString);
-    }
+    // const debug = results.slice(0, 50);
+    // for (const result of debug) {
+    //   console.log(result.logString);
+    // }
 
     return results.slice(0, count).map((r) => r.chars);
   }
